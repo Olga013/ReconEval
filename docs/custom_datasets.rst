@@ -397,10 +397,12 @@ Adapt the metadata keys and control labels to your dataset.
 1. Activate ``reconeval-pancellflow`` from the
    :ref:`installation step <custom-data-installation>`.
 
-2. Use ``pbmc_train.toml`` and ``pbmc_val.toml`` in
-   ``experiments/03_latent_shift/configs/st/`` to create ``mydata_train.toml``
-   and ``mydata_val.toml`` in the same directory. Set the ``[datasets]``
-   paths and matching dataset names in ``[training]``.
+2. Copy ``template_train.toml`` and ``template_val.toml`` from
+   ``experiments/03_latent_shift/configs/st/`` to ``mydata_train.toml`` and
+   ``mydata_val.toml`` in the same directory. Set the split directories in
+   ``[datasets]`` and use matching dataset names in ``[training]``.
+   Keep the ``"train"`` value in both files; the script uses a separate
+   data module's training loader for validation.
 
 3. In ``experiments/03_latent_shift/codes/train_st.py``, point
    ``build_data_module`` and ``build_val_data_module`` to those TOML files.
@@ -456,10 +458,12 @@ For PCA, set the decoder's ``mean_path`` and ``pc_path`` in
 2. In ``experiments/03_latent_shift/codes/train_cf.py``, set ``DATA_ROOT``
    to ``/path/to/mydata`` and adapt the metadata/control labels if needed.
 
-3. Replace the PBMC-specific ESM2 lookup with your perturbation features.
-   Retain a vector for every non-control perturbation across all splits,
-   including any absent from training. Validation/test donor and cell-type
-   labels must occur in the training categories.
+3. In ``train_cf.py``, update the block that calls ``hf_hub_download()``
+   with ``filename="pbmc_parse.h5ad"`` and reads ``uns/esm2_embeddings``
+   to load your dataset's perturbation features. Retain a vector for every
+   non-control perturbation across all splits, including any absent from
+   training. Validation/test donor and cell-type labels must occur in the
+   training categories.
 
 4. Set the representation and output directory, then train CellFlow.
    For ``AE_128`` embeddings:
