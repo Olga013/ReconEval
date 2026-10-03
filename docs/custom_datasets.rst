@@ -26,16 +26,6 @@ To create environment check the following instructions:
 - Environments `README <https://github.com/theislab/ReconEval/blob/main/envs/README.md>`_ in the ReconEval repository
 - :doc:`installation`
 
-**NB!** For end-to-end training, choose an output root and optionally use offline W&B logging:
-
-.. code-block:: bash
-
-   export RECONEVAL_OUT=/path/to/results
-   export WANDB_MODE=offline
-
-The standalone MLP, STATE, and CellFlow scripts use their own output flags,
-shown below.
-
 .. _slurm-parameters:
 
 2. Set up SLURM parameters
@@ -45,7 +35,7 @@ Skip this section for direct Python runs.
 
 Before submitting a job:
 
-1. Use scripts located in ``experiment/*/submit/`` directory
+1. Use scripts located in ``experiments/*/submit/`` directory
    as the examples for your own SLURM submission scripts.
 
 2. Edit ``#SBATCH`` settings in your ``.sbatch`` file for your cluster. Existing resource requests
@@ -60,7 +50,11 @@ Before submitting a job:
       source /path/to/miniforge3/etc/profile.d/conda.sh
       conda activate reconeval
 
-4. Create the log directory **before** submission, from the repository root:
+4. After Conda activation, add ``cd /path/to/ReconEval`` and your task's
+   **Run from CLI** command to the ``.sbatch`` file. Adjust the paths
+   and training options.
+
+5. Create the log directory **before** submission, from the repository root:
 
    .. code-block:: bash
 
@@ -84,7 +78,9 @@ Check the AE training run with exported environment variables as an example:
    sbatch --export=ALL experiments/01_end_to_end/submit/train_ae.sbatch
 
 
-3. 01_end_to_end
+.. _custom-data-end-to-end:
+
+3. End-to-end
 ----------------------------------------------
 
 3.1. Add the preprocessed dataset
@@ -103,27 +99,18 @@ Check the AE training run with exported environment variables as an example:
   directory, with expression stored as a CSR matrix in ``.X``.
 
 
-For AE and the scVI variants, each ``.zarr`` directory must contain a
-dense expression matrix, with cells as rows and genes as columns.
-Store this matrix at the root of the Zarr store or as an array named
-``X``. For the default model configurations, use log-normalized
-expression values stored as ``float32``.
-
-Sparse AnnData Zarr exports cannot be read directly by this loader;
-convert them to the dense layout described above before training.
-
-
 3.2. Run from CLI
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Run with a YAML configuration:**
 
-1. Use ``template.yaml`` and the example YAML files to create
+1. Activate the `reconeval` environment from the :ref:`installation step <custom-data-installation>` by using `cstm_scvi_env.yaml` file.
+2. Use ``template.yaml`` and the example YAML files to create
    your own ``mydata.yaml`` configuration.
    Save it in ``experiments/01_end_to_end/configs/data/``.
 
-2. Replace the required ``???`` fields and keep the
-   model-specific dataloader settings:
+3. Replace the required ``???`` fields and keep the
+   model-specific dataloader settings, e.g.:
 
    .. code-block:: yaml
 
@@ -131,7 +118,7 @@ convert them to the dense layout described above before training.
       path: /path/to/mydata
       input_dim: 2000
 
-3. Run model training with your ``mydata.yaml`` configuration.
+4. Run model training with your ``mydata.yaml`` configuration.
 
    For example, train an AE:
 
@@ -175,31 +162,48 @@ Available models:
 
 **Common overrides:**
 
+Required fields must be set in your dataset YAML or through command-line
+overrides. Data-loader defaults below refer to ``template.yaml``;
+trainer defaults refer to the selected AE or scVI configuration.
+VAE refers to ``scVI``, ``nlscVI``, and ``mlscVI``.
+
 .. csv-table::
-   :header: "Override", "Meaning"
-   :widths: 50, 50
+   :header: "Override", "Required / optional", "Meaning"
+   :widths: 40, 30, 30
 
-   "``data.name=mydata``", "Dataset label used in output paths and logs"
-   "``data.path=/path/to/mydata``", "Directory containing the input split files"
-   "``data.input_dim=2000``", "Number of expression columns in input data"
-   "``data.model_specific.AE.minibatch_size=256``", "Cells per batch; replace ``AE`` with the selected non-PCA model."
-   "``data.model_specific.AE.num_workers=0``", "Data-loading workers"
-   "``trainer.max_epochs=100``", "Maximum epochs for AE/scVI variants"
-   "``trainer.min_epochs=10``", "Minimum epochs"
-   "``seed=42``", "Random seed"
-   "``split=split03``", "A split label"
+   "``data.name=mydata``", "Required", "Dataset label used in output paths and logs"
+   "``data.path=/path/to/mydata``", "Required", "Directory containing the input split files"
+   "``data.input_dim=2000``", "Required", "Number of expression columns in the input data"
+   "``data.model_specific.AE.minibatch_size=256``", "Optional; default: 256", "Cells per batch; replace AE with the selected non-PCA model"
+   "``data.model_specific.AE.num_workers=0``", "Optional; default: 0", "Data-loading workers; replace AE with the selected non-PCA model"
+   "``trainer.max_epochs=100``", "Optional; default: 100", "Maximum epochs for AE and scVI variants"
+   "``trainer.min_epochs=10``", "Optional; default: AE 10; scVI variants 30", "Minimum training epochs"
+   "``seed=42``", "Optional; default: 42", "Random seed"
+   "``split=split03``", "Optional; default: split03", "Split label"
+   "``model.model_args.n_hidden=[1024]``", "Optional; AE default: [1024]", "AE hidden-layer widths; list length determines depth"
+   "``model.model_args.n_hidden=1024``", "Optional; VAE default: 1024", "VAE hidden-layer width"
+   "``model.model_args.n_latent=128``", "Optional; default: AE 100; VAE 300", "Latent dimension"
+   "``model.model_args.n_layers=3``", "Optional; VAE default: 3", "VAE number of hidden layers"
+   "``model.model_args.library_size_mode=none``", "Optional; AE default: none", "AE library-size handling: none disables scaling; observed uses the input expression sum per cell; modeled learns the scale"
+   "``model.model_args.use_observed_lib_size=true``", "Optional; scVI/nlscVI default: true; mlscVI default: false", "VAE library-size handling: true uses observed totals; false infers library size"
 
-**NB!** PCA uses the GPU/RAPIDS implementation. Set a writable scratch directory
-in ``ReconPCA._setup_cluster`` in
-``src/sc_reconstruction/models/reconpca.py`` before running it on another
-machine; its default is cluster-specific.
+**NB!** For ``nlscVI``, ``use_observed_lib_size`` controls library-size
+inference, but the decoder does not scale its output by library size.
+
+**NB!** Before running PCA, replace the default ``temp_dir`` in
+``ReconPCA._setup_cluster``
+(``src/sc_reconstruction/models/reconpca.py``) with a writable
+directory for temporary files on your machine.
 
 3.3. Run through SLURM
 ~~~~~~~~~~~~~~~~~~~~~~
 
-1. Fill all required fields in ``mydata.yaml``. 
-2. Set up SLURM parameters in your sbatch script as described in :ref:`section 2 <slurm-parameters>`.
-3. Run the script with your dataset configuration, e.g. for AE:
+1. Use ``template.yaml`` and the example YAML files to create
+   your own ``mydata.yaml`` configuration.
+   Save it in ``experiments/01_end_to_end/configs/data/``.
+2. Fill all required fields in ``mydata.yaml``. 
+3. Set up SLURM parameters in your sbatch script as described in :ref:`section 2 <slurm-parameters>`.
+4. Run the script with your dataset configuration, e.g. for AE:
 
 .. code-block:: bash
 
@@ -211,36 +215,58 @@ machine; its default is cluster-specific.
    sbatch --export=ALL experiments/01_end_to_end/submit/train_ae.sbatch
 
 
-4. For another model, copy the corresponding script and use its supported
-variables:
-
-.. csv-table::
-   :header: "Source script", "Environment variables and their defaults"
-   :widths: 25, 75
-
-   "``train_ae.sbatch``", "``DATA=tahoe``, ``LATENT=128``, ``MAX_EPOCHS=400``, ``MIN_EPOCHS=10``."
-   "``train_scvi.sbatch``", "``DATA=tahoe``, ``MODEL=scVI``, ``SPLIT=split03``, ``LATENT=128``, ``N_HIDDEN=1024``, ``MAX_EPOCHS=200``, ``MIN_EPOCHS=1``."
-   "``train_pca.sbatch``", "``DATA=tahoe``, ``SPLIT=split03``, ``LATENT=128`` (maps to ``n_components``)."
-
-For ``train_scvi.sbatch``, ``MODEL`` also accepts ``nlscVI`` or ``mlscVI``.
-
 3.4. Outputs
 ~~~~~~~~~~~~
+**Model files**
 
-Model artifacts are saved under
-``$RECONEVAL_OUT/weights/mydata/<split>/<model>/<note>/``, or under
-``~/reconeval_outputs/weights/`` when ``RECONEVAL_OUT`` is unset.
-See :doc:`tutorials/end_to_end` for reconstruction using the Python API
-and :doc:`tutorials/metrics` for scoring reconstructed expression.
+Training saves model outputs under:
 
-1. 02_foundation_model
+- ``RECONEVAL_OUT`` is set: ``$RECONEVAL_OUT/weights/mydata/<split>/<model>/<note>/``
+- ``RECONEVAL_OUT`` is unset: ``~/reconeval_outputs/weights/<dataset>/<split>/<model>/<note>/``
+
+The directory names correspond to configuration settings:
+
+- ``<dataset>``: ``data.name``, such as ``mydata``
+- ``<split>``: ``split``, which defaults to ``split03``
+- ``<model>``: ``model.meta.name``, such as ``AE`` or ``scVI``
+- ``<note>``: ``model.meta.note``, which defaults to ``Default``
+
+The saved files depend on the selected model:
+
+- **AE:** ``.ckpt`` checkpoints
+- **scVI variants:** ``.pt`` checkpoints
+- **PCA:** ``mean.zarr`` and ``pc_<n_components>.zarr``, containing
+  the training mean and principal-component matrix. Both are needed
+  for reconstruction.
+
+**NB!** AE and the scVI variants place checkpoints beneath an additional run
+directory named by ``model.save.filename``. By default, this name
+includes training settings and the date.
+
+**Logs and configuration**
+
+Using the same output root:
+
+- ``logs/`` is the configured W&B logging directory.
+- ``outputs/<dataset>/<model>/<YYYY-MM-DD_HH-MM>/`` contains Hydra's
+  run files, including configuration and overrides under ``.hydra/``.
+
+For SLURM jobs, the supplied submission scripts also write standard
+output and error logs to ``logs/slurm/`` relative to the submission
+directory.
+
+4. Foundation model
 ------------------------------------------------
+
+.. _custom-data-mlp-data:
 
 4.1. Add embeddings and expression targets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Generate embeddings with :doc:`tutorials/fm`, or use existing embeddings.
-For the MLP decoder, provide:
+1. Generate embeddings following instructions in :doc:`tutorials/fm`, take into consideration that each model requires
+its own environment (see `README <https://github.com/theislab/ReconEval/blob/main/envs/README.md>`_ in the ReconEval repository`).
+
+2. Provide the following files for MLP decoder:
 
 .. code-block:: text
 
@@ -251,18 +277,7 @@ For the MLP decoder, provide:
    ├── all_genes.zarr/
    └── target_genes.zarr/
 
-- Each split contains dense ``float32`` arrays: expression in ``X`` and
-  embeddings under ``SE``, ``scGPT``, ``scConcept``, or ``scimilarity``.
-  Both arrays must use the same cell order.
-- Use the same gene order across splits and log-normalized expression
-  for the default loss.
-- In ``attrs["var_names"]``, list the ``X`` genes in ``all_genes.zarr`` and
-  the desired output genes in ``target_genes.zarr``, preserving their order.
-  Target genes must be a subset of the full list. Split stores with these
-  attributes can replace separate metadata stores.
-
-**NB!** Export AnnData ``.obsm["X_fm"]`` embeddings to a top-level Zarr
-array with one of the names above.
+**NB!** Each of ``.zarr`` files should contain two arrays: expression and embeddings under ``SE``, ``scGPT``, ``scConcept``, or ``SCimilarity``.
 
 .. _custom-data-mlp-cli:
 
@@ -271,10 +286,9 @@ array with one of the names above.
 
 **Run the MLP decoder:**
 
-1. Activate ``reconeval`` from the
-   :ref:`installation step <custom-data-installation>`.
+1. Activate ``reconeval`` defined in :ref:`installation step <custom-data-installation>`.
 
-2. Set the paths and embedding key, then train the decoder. For SE embeddings:
+2. Set the paths and embedding key, then train the decoder. Decoder training does not require YAML configuration file. For ``SE`` embeddings:
 
    .. code-block:: bash
 
@@ -288,74 +302,71 @@ array with one of the names above.
         --epochs 500 \
         --out /path/to/results/mydata/SE/MLP
 
-**Common settings:**
+**Required inputs and common optional settings:**
 
 .. csv-table::
-   :header: "Flag", "Meaning"
-   :widths: 50, 50
+   :header: "Flag", "Required / optional", "Meaning"
+   :widths: 30, 30, 40
 
-   "``--epochs 500``", "Maximum training epochs"
-   "``--batch-size 256``", "Cells per batch"
-   "``--lr 0.0001``", "Learning rate"
-   "``--n-layers 1`` / ``--hidden 4096``", "Hidden-layer count / width"
-   "``--num-workers 0``", "Data-loading workers; default is 16"
-   "``--seed 42``", "Random seed"
-
-**NB!**
-
-- This script uses ``--flag value`` arguments. All six data/output flags
-  in the example are required; the embedding width is inferred.
-- For small splits, use ``--num-workers 0`` and a ``--batch-size`` no larger
-  than the smallest split; the loader emits full batches.
-- The encoder stays frozen. Use ``--help`` for all decoder options.
+   "``--emb-train-zarr``", "Required", "Training store containing expression and embeddings"
+   "``--emb-val-zarr``", "Required", "Validation store containing expression and embeddings"
+   "``--all-genes-zarr``", "Required", "Store whose var_names attribute lists the expression columns in order"
+   "``--target-genes-zarr``", "Required", "Store whose var_names attribute lists the genes to reconstruct"
+   "``--embedding-key``", "Required", "Embedding array name: SE, scGPT, scConcept, or scimilarity"
+   "``--out``", "Required", "Output directory for checkpoints and configuration"
+   "``--epochs``", "Optional; default: 500", "Maximum training epochs"
+   "``--batch-size``", "Optional; default: 256", "Cells per batch"
+   "``--lr``", "Optional; default: 0.0001", "Learning rate"
+   "``--n-layers``", "Optional; default: 1", "Number of hidden layers"
+   "``--hidden``", "Optional; default: 4096", "Hidden-layer width"
+   "``--num-workers``", "Optional; default: 16", "Data-loading workers; use 0 to load data in the main process"
+   "``--seed``", "Optional; default: 42", "Random seed"
 
 4.3. Run through SLURM
 ~~~~~~~~~~~~~~~~~~~~~~
 
-1. Prepare the Zarr files from section 4.1 and set the input paths,
-   embedding key, and output directory in the command from
+1. Configure your ``.sbatch`` script as described in
+   :ref:`section 2 <slurm-parameters>`, using the command from
    :ref:`section 4.2 <custom-data-mlp-cli>`.
+2. Set the input paths, embedding key, output directory, and training options.
+3. Run your script from the repository root:
 
-2. Use ``experiments/01_end_to_end/submit/train_ae.sbatch`` as a template
-   for ``experiments/02_foundation_model/submit/train_mydata_mlp.sbatch``.
-   Set up SLURM parameters as described in
-   :ref:`section 2 <slurm-parameters>` and activate ``reconeval``.
-   Replace the Python command with your command from section 4.2, preceded
-   by ``cd /path/to/ReconEval``.
+.. code-block:: bash
 
-3. Submit your script from the repository root:
-
-   .. code-block:: bash
-
-      sbatch --export=ALL experiments/02_foundation_model/submit/train_mydata_mlp.sbatch
-
-**NB!** Set training options in the Python command; this example does not
-read them from environment variables. The existing ``decoderonly_grid.sbatch``
-runs a separate benchmark-specific Hydra sweep.
+   sbatch --export=ALL /path/to/train_mydata_mlp.sbatch
 
 4.4. Outputs
 ~~~~~~~~~~~~
 
-``--out`` contains ``config.yaml`` and the checkpoint selected
-by validation loss. To reconstruct held-out embeddings, instantiate
-``ReconMLPDecoder(n_input=latent_dim, n_output=gene_dim)`` using the saved
-config, call ``decoder.load("/path/to/model.ckpt")``, then
-``decoder.decode(test_embeddings)`` with a NumPy array.
-See :doc:`tutorials/fm` and :doc:`tutorials/metrics` for the Python workflow.
-Other decoder training scripts are described in
-``experiments/02_foundation_model/README.md`` and require their own configs.
+**Model files**
 
-5. 03_latent_shift
+Training saves model outputs in the directory specified by ``--out``,
+such as ``/path/to/results/mydata/SE/MLP/``.
+
+- **MLP:** a ``.ckpt`` checkpoint with the lowest validation loss.
+
+**Logs and configuration**
+
+- ``config.yaml`` in the same directory records the run settings, including
+  the embedding dimension (``latent_dim``) and number of output genes
+  (``gene_dim``).
+- For SLURM jobs, log locations follow the ``#SBATCH`` settings in your
+  submission script.
+
+5. Latent shift
 --------------------------------------------------
 
-These scripts use existing representations. Custom data currently require
-the data-path and metadata edits below; there is no dataset-path CLI flag
-or ``data=mydata`` override for these scripts.
+For STATE and CellFlow, generate embeddings using a model trained in
+:ref:`section 3 <custom-data-end-to-end>` or a pretrained foundation model
+(:ref:`section 4.1 <custom-data-mlp-data>`). Use the same encoder for all
+splits and save embeddings in ``.obsm`` (e.g. ``.obsm["X_AE_128"]``).
 
 5.1. Add expression, embeddings, and conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For STATE and CellFlow, provide:
+1. Choose a representation and width from the training script's ``EMB_DIMS``
+   and prepare the corresponding embeddings (e.g. ``AE_128``).
+2. Provide the following files for STATE and CellFlow:
 
 .. code-block:: text
 
@@ -364,81 +375,94 @@ For STATE and CellFlow, provide:
    ├── val/val.h5ad
    └── test/test.h5ad
 
-Each split needs (example: ``AE_128``):
+**NB!** Each ``.h5ad`` file should contain:
 
-- Expression in ``.X``, with the gene order expected by the decoder.
-- Embeddings in ``.obsm["X_AE_128"]``, aligned with the expression rows.
+- Expression in ``.X`` and embeddings in ``.obsm["X_AE_128"]`` (for ``AE_128``),
+  with matching cell order. Expression genes must follow the order expected
+  by the decoder.
 - Metadata in ``.obs["donor"]``, ``.obs["cell_type"]``, and
   ``.obs["target_gene"]``.
-- Controls labelled ``PBS`` for the donor/cell-type groups being predicted.
+- Controls labelled ``PBS`` in ``.obs["target_gene"]`` for the
+  donor/cell-type groups being predicted.
 
-Use a representation and width listed in the script's ``EMB_DIMS``.
 Adapt the metadata keys and control labels to your dataset.
+
+.. _custom-data-state-cli:
 
 5.2. Run STATE from CLI
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Activate ``reconeval-pancellflow`` from the
-:ref:`installation step <custom-data-installation>`.
+**Run STATE:**
 
-**Configure and run:**
+1. Activate ``reconeval-pancellflow`` from the
+   :ref:`installation step <custom-data-installation>`.
 
-1. Copy ``pbmc_train.toml`` and ``pbmc_val.toml`` from
-   ``experiments/03_latent_shift/configs/st/`` to ``mydata_train.toml`` and
-   ``mydata_val.toml`` in the same directory. Set the ``[datasets]`` paths
-   and matching dataset names in ``[training]``.
+2. Use ``pbmc_train.toml`` and ``pbmc_val.toml`` in
+   ``experiments/03_latent_shift/configs/st/`` to create ``mydata_train.toml``
+   and ``mydata_val.toml`` in the same directory. Set the ``[datasets]``
+   paths and matching dataset names in ``[training]``.
 
-2. In ``experiments/03_latent_shift/codes/train_st.py``, point
+3. In ``experiments/03_latent_shift/codes/train_st.py``, point
    ``build_data_module`` and ``build_val_data_module`` to those TOML files.
-   Update ``DATA_KWARGS_COMMON`` for your metadata and
-   ``DECODER_CONFIGS["AE_128"]["ckpt"]`` for your AE checkpoint.
-   The checkpoint must match the embedding width and output gene order.
+   Update ``DATA_KWARGS_COMMON`` for your metadata keys and control label.
 
-3. Train STATE with AE-128 embeddings and a frozen decoder:
+4. Set the representation, decoder checkpoint, and output directory, then
+   train STATE. The checkpoint must match the embedding width and output
+   gene order. For ``AE_128`` embeddings:
 
    .. code-block:: bash
 
       python experiments/03_latent_shift/codes/train_st.py \
         --model AE_128 \
         --decoder_mode frozen \
+        --decoder_ckpt /path/to/ae128.ckpt \
         --max_steps 40000 \
         --batch_size 16 \
         --no_wandb \
         --out_root /path/to/results/mydata/state
 
-**Common settings:**
+**Required inputs and common optional settings:**
 
 .. csv-table::
-   :header: "Flag", "Meaning"
-   :widths: 50, 50
+   :header: "Flag", "Required / optional", "Meaning"
+   :widths: 30, 30, 40
 
-   "``--max_steps 40000``", "Training-step limit"
-   "``--batch_size 16``", "Cell sets per training batch"
-   "``--lr 0.0001``", "Learning rate"
-   "``--decoder_mode frozen``", "Use a trained decoder; ``fresh`` initializes one"
-   "``--decoder_weight 0.0``", "Gene-space loss weight; use a positive value for a fresh decoder"
-   "``--out_root PATH``", "Output root; a run subdirectory is created"
+   "``--model``", "Required", "Representation listed in EMB_DIMS, e.g. AE_128"
+   "``--decoder_mode``", "Optional; default: frozen", "Use a trained decoder; fresh initializes one"
+   "``--decoder_ckpt``", "Optional; default: path in DECODER_CONFIGS", "Checkpoint for a frozen AE, VAE, or MLP decoder; ignored for PCA and fresh decoders"
+   "``--decoder_weight``", "Optional; default: 0.0", "Gene-space loss weight; use a positive value to train a fresh decoder"
+   "``--max_steps``", "Optional; default: 40000", "Maximum training steps"
+   "``--batch_size``", "Optional; default: 16", "Cell sets per training batch"
+   "``--lr``", "Optional; default: 0.0001", "Learning rate"
+   "``--seed``", "Optional; default: 42", "Random seed"
+   "``--arch_config``", "Optional; default: hf_se_parse", "Architecture YAML name under configs/arch, or a YAML file path"
+   "``--cell_set_len``", "Optional; default: architecture setting (512 for hf_se_parse)", "Cells per set"
+   "``--no_wandb``", "Optional; default: false", "Pass this flag to disable W&B logging"
+   "``--out_root``", "Optional; default: script's OUT_ROOT", "Output root; a run subdirectory is created. Set a writable path for your run"
 
-**NB!**
+For PCA, set the decoder's ``mean_path`` and ``pc_path`` in
+``DECODER_CONFIGS``.
 
-- Data paths are configured in the TOML files and script.
-- ``--no_wandb`` disables W&B logging. Use ``--help`` for all options.
+.. _custom-data-cellflow-cli:
 
 5.3. Run CellFlow from CLI
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Use the same environment, ``reconeval-pancellflow``.
+**Run CellFlow:**
 
-**Configure and run:**
+1. Activate ``reconeval-pancellflow`` from the
+   :ref:`installation step <custom-data-installation>`.
 
-1. In ``experiments/03_latent_shift/codes/train_cf.py``, set ``DATA_ROOT``
+2. In ``experiments/03_latent_shift/codes/train_cf.py``, set ``DATA_ROOT``
    to ``/path/to/mydata`` and adapt the metadata/control labels if needed.
 
-2. Replace the PBMC-specific ESM2 lookup with your perturbation features.
-   Provide a vector for every non-control perturbation. Validation/test
-   donor and cell-type labels must occur in the training categories.
+3. Replace the PBMC-specific ESM2 lookup with your perturbation features.
+   Retain a vector for every non-control perturbation across all splits,
+   including any absent from training. Validation/test donor and cell-type
+   labels must occur in the training categories.
 
-3. Train CellFlow with AE-128 embeddings:
+4. Set the representation and output directory, then train CellFlow.
+   For ``AE_128`` embeddings:
 
    .. code-block:: bash
 
@@ -450,94 +474,65 @@ Use the same environment, ``reconeval-pancellflow``.
         --valid_freq 50000 \
         --out_dir /path/to/results/mydata/cellflow
 
-**Common settings:**
+**Required inputs and common optional settings:**
 
 .. csv-table::
-   :header: "Flag", "Meaning"
-   :widths: 50, 50
+   :header: "Flag", "Required / optional", "Meaning"
+   :widths: 30, 30, 40
 
-   "``--config repro``", "Training preset: ``repro`` or ``paper``"
-   "``--num_iters 500000``", "Training iterations"
-   "``--batch_size 1024``", "Cells per batch"
-   "``--valid_freq 50000``", "Validation interval in iterations"
-   "``--seed 42``", "Random seed"
-   "``--out_dir PATH``", "Run output directory"
+   "``--model``", "Required", "Representation listed in EMB_DIMS, e.g. AE_128"
+   "``--config``", "Optional; default: repro", "Training preset: repro or paper"
+   "``--num_iters``", "Optional; default: 500000", "Training iterations"
+   "``--batch_size``", "Optional; default: 1024", "Cells per batch"
+   "``--valid_freq``", "Optional; default: 50000", "Validation interval in iterations"
+   "``--seed``", "Optional; default: 42", "Random seed"
+   "``--out_dir``", "Optional; default: generated under out_root", "Exact run output directory; set a writable path for your run"
+   "``--out_root``", "Optional; default: script's OUT_ROOT", "Output root used when out_dir is omitted"
 
-**NB!**
-
-- Metrics labelled ``test`` use ``val/val.h5ad``; keep the test split held out.
-- Use ``--help`` for all options.
+**NB!** During training, metrics labelled ``test`` are computed on ``val/val.h5ad``.
 
 5.4. Run through SLURM
 ~~~~~~~~~~~~~~~~~~~~~~
 
-1. Complete the data and configuration edits in section 5.2 for STATE
-   or section 5.3 for CellFlow.
+1. Configure your ``.sbatch`` script as described in
+   :ref:`section 2 <slurm-parameters>`, using the command from
+   :ref:`section 5.2 <custom-data-state-cli>` for STATE or
+   :ref:`section 5.3 <custom-data-cellflow-cli>` for CellFlow.
+   Activate ``reconeval-pancellflow`` in the script.
+2. Set the representation, output directory, and training options,
+   including the decoder checkpoint for STATE when needed.
+3. Run your script from the repository root:
 
-2. Set up SLURM parameters in ``train_st.sbatch`` or ``train_cf.sbatch``
-   under ``experiments/03_latent_shift/submit/``, as described in
-   :ref:`section 2 <slurm-parameters>`. Set
-   ``EXPDIR=/path/to/ReconEval/experiments/03_latent_shift`` and activate
-   ``reconeval-pancellflow`` in your script.
+.. code-block:: bash
 
-3. Run STATE with your dataset configuration, e.g. for AE-128 embeddings:
+   # STATE
+   sbatch --export=ALL /path/to/train_mydata_state.sbatch
 
-   .. code-block:: bash
+   # CellFlow
+   sbatch --export=ALL /path/to/train_mydata_cellflow.sbatch
 
-      export MODEL=AE_128
-      export ARCH_CONFIG=hf_se_parse
-      export DECODER_MODE=frozen
-      export DECODER_WEIGHT=0.0
-      export SEED=42
-      export OUT_ROOT=/path/to/results/mydata/state
+5.5. Outputs
+~~~~~~~~~~~~
 
-      sbatch --array=0 --export=ALL experiments/03_latent_shift/submit/train_st.sbatch
+**Model files**
 
-4. For CellFlow, use its submission script and supported variables:
+- **STATE:** saves models under ``<out_root>/<run_name>/checkpoints/``,
+  including the three best validation checkpoints, ``last.ckpt``, and
+  ``final.ckpt``. The run name retains ``pbmc_split03`` even for custom
+  data. An existing ``last.ckpt`` is used to resume training automatically.
+- **CellFlow:** saves the best and last CellFlow model artifacts in the
+  directory specified by ``--out_dir``. The best model is selected using
+  validation data.
 
-   .. code-block:: bash
+Set ``--out_root`` for STATE and ``--out_dir`` for CellFlow to writable
+paths, as in the CLI examples. Their defaults use cluster-specific paths;
+``RECONEVAL_OUT`` does not redirect these outputs.
 
-      export MODEL=AE_128
-      export CONFIG=repro
-      export NUM_ITERS=500000
-      export BATCH_SIZE=1024
-      export VALID_FREQ=50000
-      export OUT_DIR=/path/to/results/mydata/cellflow
+**Logs and configuration**
 
-      sbatch --export=ALL experiments/03_latent_shift/submit/train_cf.sbatch
-
-.. csv-table::
-   :header: "Source script", "Environment variables and their defaults"
-   :widths: 25, 75
-
-   "``train_st.sbatch``", "``MODEL=PCA_32`` (array default), ``ARCH_CONFIG=paper_parse_pbmc``, ``DECODER_MODE=frozen``, ``DECODER_WEIGHT=0.0``, ``SEED=42``; optional ``OUT_ROOT`` and ``SCHEDULER_FLAG`` (both unset)."
-   "``train_cf.sbatch``", "``MODEL=AE_2048``, ``CONFIG=repro``, ``NUM_ITERS=500000``, ``BATCH_SIZE=1024``, ``VALID_FREQ=50000``; optional ``OUT_DIR`` (unset)."
-
-**NB!**
-
-- The STATE example selects one model and one array index. Use
-  ``export SCHEDULER_FLAG=--scheduler`` to enable learning-rate scheduling.
-- STATE fixes ``--max_steps 200000``, ``--batch_size 16``, ``--lr 3e-4``,
-  and ``--cell_set_len 512`` in its Python command. Edit that command to
-  change them or add ``--no_wandb`` to disable W&B logging.
-- To change CellFlow's seed, add ``--seed`` to its Python command;
-  exporting ``SEED`` has no effect.
-
-5.5. Find outputs and evaluate
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-* **STATE:** ``--out_root/<run_name>/`` contains ``config.yaml``, label
-  mappings, and ``checkpoints/`` with validation checkpoints,
-  ``last.ckpt``, and ``final.ckpt``. The generated name currently retains
-  the label ``pbmc_split03`` even for custom data. A run with an existing
-  ``last.ckpt`` resumes automatically.
-* **CellFlow:** ``--out_dir`` contains ``config.json``,
-  ``training_logs.json``, ``training_curves.png``, and best/last CellFlow
-  model artifacts.
-
-``RECONEVAL_OUT`` does not redirect these scripts' outputs. For predictions
-and public perturbational metrics, see :doc:`tutorials/latent_shift`;
-replace its synthetic arrays with your own control, true-perturbed, and
-predicted cells. The batch evaluators ``eval_cf.py`` and ``eval_st.py``
-currently depend on ``sc_reconstruction.metrics.st_pert``, which is absent
-from this checkout.
+- **STATE:** ``config.yaml`` and label mappings are saved in the run
+  directory, alongside ``checkpoints/``.
+- **CellFlow:** ``config.json``, ``training_logs.json``, and
+  ``training_curves.png`` are saved in the output directory.
+- For SLURM jobs, log locations follow the ``#SBATCH`` settings in your
+  submission script.
